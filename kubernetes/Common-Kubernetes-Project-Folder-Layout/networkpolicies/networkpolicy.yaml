@@ -1,0 +1,18 @@
+//This ensures pods in the dev namespace can only talk to other pods within dev — no cross-namespace traffic 
+//(pods or services in one Kubernetes namespace cannot communicate with pods or services in another namespace, and vice versa.) either way.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: internal-only
+  namespace: dev
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}

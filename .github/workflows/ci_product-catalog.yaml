@@ -59,7 +59,7 @@ jobs:
             run: golangci-lint run
             working-directory: src/product-catalog
 
-    # docker: for docker steps - checkout code, install docker/login/docker image push
+    # docker: for docker steps - checkout code, install docker/aws login/docker image push
     docker:
        name: docker build and push #build and push docker image to ECR
        runs-on: [self-hosted, linux, x64, aws-prod-cat-runner]

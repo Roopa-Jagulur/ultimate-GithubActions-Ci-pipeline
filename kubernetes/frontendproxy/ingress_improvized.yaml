@@ -1,0 +1,68 @@
+#let’s put everything together into a realistic ingress.yaml example that supports:
+#✅ AWS ALB Ingress Controller
+#✅ SSL/TLS termination via AWS Certificate Manager (ACM)
+#✅ Secure routing for multiple microservices
+#✅ Integration with External Secrets (implicitly through annotations or referenced secrets)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-ingress
+  namespace: production
+  annotations:
+    # -- Use AWS ALB as the Ingress Controller
+    kubernetes.io/ingress.class: alb
+
+    # -- ALB scheme: internet-facing or internal
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # -- ALB target type: use IP mode for pod-level routing
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # -- Enable HTTP to HTTPS redirection
+    alb.ingress.kubernetes.io/actions.ssl-redirect: >
+      {"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301" }}
+
+    # -- ACM Certificate ARN for HTTPS (replace with your certificate ARN)
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-1:123456789012:certificate/abcd1234-5678-efgh-9012-ijkl3456mnop
+
+    # -- Listen on HTTPS
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}, {"HTTPS":443}]'
+
+    # -- Security and monitoring integrations (optional)
+    alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=my-alb-logs-bucket
+
+spec:
+  rules:
+    # Example 1: Path-based routing for multiple microservices
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /orders
+            pathType: Prefix
+            backend:
+              service:
+                name: orders-service
+                port:
+                  number: 80
+
+          - path: /users
+            pathType: Prefix
+            backend:
+              service:
+                name: users-service
+                port:
+                  number: 80
+
+          - path: /payments
+            pathType: Prefix
+            backend:
+              service:
+                name: payments-service
+                port:
+                  number: 80
+
+  tls:
+    - hosts:
+        - myapp.example.com
+      # TLS termination handled by ALB with ACM cert
+      secretName: tls-secret-placeholder

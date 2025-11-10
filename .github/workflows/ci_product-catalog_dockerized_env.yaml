@@ -1,0 +1,113 @@
+# To convert your existing GitHub Actions workflow to run each job inside Docker containers on a self-hosted VM (Dockerized environment), you can leverage the container option under each job. This lets all steps of that job run inside the specified Docker container for environment isolation.
+# Below is your updated workflow with the addition of the container field for each job using appropriate Docker images (e.g., official Golang image for Go jobs, Docker CLI image for Docker build, etc.):
+# Key Implementation Notes
+# container: specifies a Docker image that wraps your job steps, providing a clean, consistent environment.
+# For Docker jobs, the runner Docker container needs the Docker daemon accessible (usually by mounting host Docker socket) and --privileged mode to enable DinD (Docker-in-Docker).
+# Each job’s dependencies (needs:) and runner labels stay the same.
+# This converts the jobs to run fully inside Docker containers on the self-hosted VM, giving you isolation and repeatability.
+name: product-catalog-ci
+
+on: 
+  pull_request_target:
+    branches:
+    - main
+
+  push:
+    branches-ignore:
+    - kubernetes/productcatalog/deploy.yaml
+
+jobs:
+
+  test:
+    name: unit testing
+    runs-on: [self-hosted, linux, x64, aws-prod-cat-runner]
+    container: golang:1.22  # Run steps inside Golang Docker container
+
+    steps: 
+    - name: checkout code
+      uses: actions/checkout@v4
+
+    - name: Build
+      run: |
+        cd src/product-catalog
+        go mod download
+        go build -o product-catalog-service main.go  
+
+    - name: unit tests
+      run: |
+        cd src/product-catalog 
+        go test ./...
+
+  code-quality:
+    name: static code analysis
+    runs-on: [self-hosted, linux, x64, aws-prod-cat-runner]
+    container: golang:1.22  # Run lint inside Golang container
+
+    steps:
+    - name: checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: v1.55.2
+        run: golangci-lint run
+        working-directory: src/product-catalog
+
+  docker:
+    name: docker build and push
+    runs-on: [self-hosted, linux, x64, aws-prod-cat-runner]
+    needs: [test, code-quality]
+    container:
+      image: docker:24.0.2  # Docker official CLI image
+      options: --privileged  # Required for Docker-in-Docker
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build and push Docker image to ECR
+      uses: docker/build-push-action@v6
+      with:
+        context: src/product-catalog
+        file: src/product-catalog/Dockerfile
+        push: true
+        tags: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.run_id }}
+
+    - name: Scan Docker image with Trivy
+      uses: aquasecurity/trivy-action@v0.17.0
+      with:
+        image-ref: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.run_id }}
+        format: 'table'
+        exit-code: '1'
+        severity: 'CRITICAL,HIGH'
+
+  updatek8s:
+    name: update k8s deployment manifest
+    runs-on: [self-hosted, linux, x64, aws-prod-cat-runner]
+    needs: docker
+    container: alpine/git  # lightweight git container for git operations
+
+    steps:
+    - name: checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.TOKEN_GITHUB }}
+
+    - name: Update tag in kubernetes deployment manifest
+      run: |
+        sed -i "s|image: .*|image: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.run_id }}|" kubernetes/productcatalog/deploy.yaml
+
+    - name: Commit and push changes
+      run: |
+        git config --global user.email "narpala.roopa@gmail.com"
+        git config --global user.name "Roopa-Jagulur"
+        git add kubernetes/productcatalog/deploy.yaml
+        git commit -m "[CI]: Update product catalog image tag"
+        git push origin HEAD:main -f

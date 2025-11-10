@@ -1,4 +1,4 @@
-# CI for Product Catalog Service
+# CI for Product Catalog Service, This CI workflow runs on a self-hosted VM environment
 name: product-catalog-ci
 
 # on: says when to trigger this workflow
